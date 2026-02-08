@@ -1,0 +1,280 @@
+/* Neuro-Adaptive-Robotron-ML — GitHub Pages (Neuro Gaming Lab style) */
+
+:root {
+  --bg: #0a0b0d;
+  --surface: #0f1115;
+  --border: #1a2332;
+  --text: #e0e6ed;
+  --text-muted: #8b9cad;
+  --accent: #00e676;
+  --accent-dim: #00a857;
+  --glow: rgba(0, 230, 118, 0.25);
+  --pill-bg: rgba(0, 230, 118, 0.08);
+  --font-display: "Orbitron", sans-serif;
+  --font-mono: "Share Tech Mono", monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  line-height: 1.6;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Subtle CRT / retro overlay */
+.scanline {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.06) 2px,
+    rgba(0, 0, 0, 0.06) 4px
+  );
+}
+
+.noise {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Hero */
+.hero {
+  text-align: center;
+  padding: 4rem 1.5rem 3rem;
+  position: relative;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 1rem;
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 5vw, 2.75rem);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.5rem;
+  color: var(--text);
+  text-shadow: 0 0 30px var(--glow);
+}
+
+.tagline {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+.tagline strong {
+  color: var(--accent);
+}
+
+.sub {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  max-width: 40ch;
+  margin: 0 auto 1.5rem;
+}
+
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.pill {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 0.35rem 0.75rem;
+  background: var(--pill-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 2rem;
+}
+
+/* Main content */
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+}
+
+.intro {
+  margin-bottom: 2rem;
+}
+
+.intro p {
+  margin: 0 0 1rem;
+  color: var(--text-muted);
+}
+
+.intro .closing {
+  margin-top: 1.25rem;
+  color: var(--text);
+}
+
+.intro strong {
+  color: var(--accent);
+}
+
+/* CTA buttons */
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin-bottom: 2.5rem;
+}
+
+.btn {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  padding: 0.65rem 1.25rem;
+  border-radius: 4px;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.btn-play {
+  background: var(--accent);
+  color: var(--bg);
+  border: 1px solid var(--accent);
+}
+
+.btn-play:hover {
+  background: var(--accent-dim);
+  box-shadow: 0 0 20px var(--glow);
+}
+
+.btn-gh {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+
+.btn-gh:hover {
+  background: var(--pill-bg);
+  box-shadow: 0 0 15px var(--glow);
+}
+
+/* Features list */
+.features {
+  margin-bottom: 2.5rem;
+}
+
+.features h2 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 1rem;
+}
+
+.features ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--text-muted);
+}
+
+.features li {
+  margin-bottom: 0.5rem;
+}
+
+.features strong {
+  color: var(--text);
+}
+
+/* Screenshots */
+.screenshots h2 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 1rem;
+}
+
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.gallery img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* Footer meta */
+.footer-meta {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.footer-meta p {
+  margin: 0.25rem 0;
+}
+
+.footer-meta a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.footer-meta a:hover {
+  text-decoration: underline;
+}
+
+.site-footer {
+  text-align: center;
+  padding: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+.site-footer p {
+  margin: 0;
+}

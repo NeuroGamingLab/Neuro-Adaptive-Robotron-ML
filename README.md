@@ -69,3 +69,9 @@ Then open **http://localhost:8501**. The container runs Streamlit only; no templ
 - `DESIGN.md` — Game design doc
 - `ML-README.md` — ML features doc
 - `Dockerfile` / `.dockerignore` — Docker build (excludes `.venv`, template folder if present)
+- `docs/` — GitHub Pages site (Neuro Gaming Lab theme). Enable in repo **Settings → Pages → Source: Deploy from branch → Branch: main, /docs**. Live at: **https://neurogaminglab.github.io/Neuro-Adaptive-Robotron-ML/**
+
+---
+
+**NeuroGamingLab** · Design & architecture: Tuệ Hoàng, AI/ML Engineer.  
+*Multi-LLM–assisted development.*
