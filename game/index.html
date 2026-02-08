@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robotron with ML</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Courier New", monospace;
+      color: #0f0;
+    }
+    #game-container {
+      position: relative;
+      box-shadow: 0 0 0 2px #0f0, 0 0 20px rgba(0, 255, 0, 0.2);
+    }
+    #game-canvas {
+      display: block;
+      background: #111;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    #ui {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    #ui button { pointer-events: auto; }
+    #hud {
+      position: absolute;
+      top: 8px; left: 0; right: 0;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-size: 14px;
+      color: #0f0;
+      text-shadow: 0 0 4px #0f0;
+    }
+    #start-screen, #game-over-screen, #wave-clear-screen {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      background: rgba(0, 20, 0, 0.9);
+      border: 2px solid #0f0;
+      padding: 32px 48px;
+      box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+    }
+    #start-screen h1, #game-over-screen h2, #wave-clear-screen h2 {
+      margin-bottom: 16px;
+      font-size: 28px;
+      color: #0f0;
+      text-shadow: 0 0 8px #0f0;
+    }
+    #start-screen p, #game-over-screen p, #wave-clear-screen p {
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #8f8;
+    }
+    #start-btn, #restart-btn, #next-wave-btn {
+      margin-top: 24px;
+      padding: 12px 24px;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: bold;
+      color: #000;
+      background: #0f0;
+      border: 2px solid #0f0;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+    #start-btn:hover, #restart-btn:hover, #next-wave-btn:hover {
+      background: #0a0;
+      box-shadow: 0 0 15px #0f0;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas" width="900" height="600"></canvas>
+    <div id="ui">
+      <div id="hud">
+        <span id="score">Score: 0</span>
+        <span id="lives">Lives: 3</span>
+        <span id="shield-label">Shield: —</span>
+        <span id="smart-missile-label">Smart: READY</span>
+        <span id="wave">Wave: 1</span>
+      </div>
+      <div id="start-screen">
+        <h1>Robotron with ML</h1>
+        <p><strong>Controls</strong> (click the game area first so keys work):</p>
+        <p><strong>↑↓←→</strong> Move · <strong>Space</strong> Fire · <strong>S</strong> Smart missile (homes on nearest robot)</p>
+        <p><strong>F</strong> Shield (hold) · <strong>G</strong> New walls</p>
+        <p>Bots use ML-style coordination: flanking, predictive aim, staggered fire.</p>
+        <button id="start-btn">Start Game</button>
+      </div>
+      <div id="game-over-screen" class="hidden">
+        <h2>Game Over</h2>
+        <p id="final-score">Score: 0</p>
+        <button id="restart-btn">Play Again</button>
+      </div>
+      <div id="wave-clear-screen" class="hidden">
+        <h2>Wave Clear!</h2>
+        <button id="next-wave-btn">Next Wave</button>
+      </div>
+    </div>
+  </div>
+  <script>
+(function () {
+  'use strict';
+
+  var canvas = document.getElementById('game-canvas');
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width;
+  var H = canvas.height;
+
+  var UI = {
+    scoreEl: document.getElementById('score'),
+    livesEl: document.getElementById('lives'),
+    shieldEl: document.getElementById('shield-label'),
+    smartMissileEl: document.getElementById('smart-missile-label'),
+    waveEl: document.getElementById('wave'),
+    startScreen: document.getElementById('start-screen'),
+    gameOverScreen: document.getElementById('game-over-screen'),
+    waveClearScreen: document.getElementById('wave-clear-screen'),
+    finalScoreEl: document.getElementById('final-score'),
+    startBtn: document.getElementById('start-btn'),
+    restartBtn: document.getElementById('restart-btn'),
+    nextWaveBtn: document.getElementById('next-wave-btn'),
+  };
+
+  var PLAYER = {
+    radius: 12,
+    speed: 4,
+    health: 3,
+    lives: 3,
+    invincibleDuration: 1500,
+    fireCooldownMs: 150,
+  };
+  var PLAYER_BULLET = { radius: 3, speed: 14 };
+  var SMART_MISSILE = { radius: 5, speed: 9, cooldownMs: 3000, score: 100 };
+  var GRUNT = {
+    radius: 14,
+    speed: 1.2,
+    health: 1,
+    fireCooldownMs: 1500,
+    bulletSpeed: 6,
+    score: 100,
+  };
+  var ML = {
+    flankRadius: 140,
+    flankRadiusMin: 100,
+    flankRadiusMax: 180,
+    leadFrames: 6,
+    predictFrames: 14,
+    smoothFactor: 0.88,
+    allyRadius: 120,
+    formationPhaseSpeed: 0.00015,
+    nAngularBins: 12,
+    gapThreshold: 1,
+    crowdThreshold: 2,
+  };
+  var avgPlayerVx = 0;
+  var avgPlayerVy = 0;
+  var predictedPlayerX = W / 2;
+  var predictedPlayerY = H / 2;
+  var ENEMY_BULLET = { radius: 4, speed: 6 };
+  var WAVE_COUNTS = [6, 8, 12, 16, 20];
+  var WAVE_CLEAR_PAUSE_MS = 1500;
+
+  var MARL_CONST = {
+    obsScale: 500,
+    maxAllies: 10,
+    nWallRays: 4,
+    wallRayLen: 150,
+    moveDirs: [
+      [0, 0], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1], [1, 1]
+    ]
+  };
+  (function () {
+    var d = MARL_CONST.moveDirs;
+    for (var i = 1; i < d.length; i++) {
+      var len = Math.sqrt(d[i][0] * d[i][0] + d[i][1] * d[i][1]);
+      d[i][0] /= len;
+      d[i][1] /= len;
+    }
+  })();
+
+  var state = 'start';
+  var score = 0;
+  var wave = 1;
+  var waveClearTimer = 0;
+
+  var player = {
+    x: W / 2,
+    y: H / 2,
+    vx: 0,
+    vy: 0,
+    health: PLAYER.health,
+    lives: PLAYER.lives,
+    invincibleUntil: 0,
+    lastAimDx: 0,
+    lastAimDy: -1,
+    fireCooldownUntil: 0,
+  };
+
+  var bullets = [];
+  var smartMissiles = [];
+  var enemies = [];
+  var walls = [];
+  var keys = { up: false, down: false, left: false, right: false, space: false, shield: false };
+  var SHIELD_RADIUS = 14;
+  var WALL_COUNT = 12;
+  var PLAYER_SPAWN_X = W / 2;
+  var PLAYER_SPAWN_Y = H / 2;
+  var SPAWN_MARGIN = 80;
+
+  var Sound = (function () {
+    var ctx = null;
+    function getCtx() {
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      return ctx;
+    }
+    function beep(opt) {
+      try {
+        var c = getCtx();
+        if (c.state === 'suspended') c.resume();
+        var o = c.createOscillator();
+        var g = c.createGain();
+        o.connect(g);
+        g.connect(c.destination);
+        o.type = opt.type || 'square';
+        o.frequency.setValueAtTime(opt.freq || 440, c.currentTime);
+        o.frequency.exponentialRampToValueAtTime(opt.freqEnd || opt.freq || 220, c.currentTime + (opt.duration || 0.1));
+        g.gain.setValueAtTime(opt.vol !== undefined ? opt.vol : 0.15, c.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + (opt.duration || 0.1));
+        o.start(c.currentTime);
+        o.stop(c.currentTime + (opt.duration || 0.1));
+      } catch (e) {}
+    }
+    return {
+      laser: function () { beep({ type: 'sawtooth', freq: 880, freqEnd: 440, duration: 0.06, vol: 0.12 }); },
+      enemyHit: function () { beep({ type: 'sawtooth', freq: 200, freqEnd: 80, duration: 0.12, vol: 0.2 }); },
+      playerHit: function () { beep({ type: 'square', freq: 150, freqEnd: 80, duration: 0.2, vol: 0.25 }); },
+      waveClear: function () {
+        var c = getCtx();
+        if (c.state === 'suspended') c.resume();
+        [523, 659, 784, 1047].forEach(function (f, i) {
+          var o = c.createOscillator();
+          var g = c.createGain();
+          o.connect(g);
+          g.connect(c.destination);
+          o.type = 'square';
+          var t = c.currentTime + i * 0.1;
+          o.frequency.setValueAtTime(f, t);
+          g.gain.setValueAtTime(0.15, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+          o.start(t);
+          o.stop(t + 0.15);
+        });
+      },
+      gameOver: function () { beep({ type: 'sawtooth', freq: 150, freqEnd: 80, duration: 0.4, vol: 0.2 }); },
+      resume: function () { try { getCtx().resume(); } catch (e) {} }
+    };
+  })();
+
+  function getMoveDirs() {
+    var dx = 0, dy = 0;
+    if (keys.up) dy -= 1;
+    if (keys.down) dy += 1;
+    if (keys.left) dx -= 1;
+    if (keys.right) dx += 1;
+    if (dx !== 0 || dy !== 0) {
+      var len = Math.sqrt(dx * dx + dy * dy);
+      dx /= len;
+      dy /= len;
+    }
+    return { dx: dx, dy: dy };
+  }
+
+  function getAimDirs() {
+    var dx = 0, dy = 0;
+    if (keys.up) dy -= 1;
+    if (keys.down) dy += 1;
+    if (keys.left) dx -= 1;
+    if (keys.right) dx += 1;
+    if (dx !== 0 || dy !== 0) {
+      var len = Math.sqrt(dx * dx + dy * dy);
+      dx /= len;
+      dy /= len;
+      return { dx: dx, dy: dy };
+    }
+    return null;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.code === 'ArrowUp') { keys.up = true; e.preventDefault(); }
+    if (e.code === 'ArrowDown') { keys.down = true; e.preventDefault(); }
+    if (e.code === 'ArrowLeft') { keys.left = true; e.preventDefault(); }
+    if (e.code === 'ArrowRight') { keys.right = true; e.preventDefault(); }
+    if (e.code === 'Space') { keys.space = true; e.preventDefault(); }
+    if (e.code === 'KeyF') { keys.shield = true; e.preventDefault(); }
+    if (e.code === 'KeyG') {
+      if (state === 'playing' || state === 'wave_clear') {
+        generateWalls();
+        var margin = PLAYER.radius + 8;
+        walls = walls.filter(function (w) {
+          return !circleRectOverlap(player.x, player.y, margin, w);
+        });
+      }
+      e.preventDefault();
+    }
+    if (e.code === 'KeyS') {
+      if (state === 'playing' && enemies.length > 0 && Date.now() >= (player.smartMissileCooldownUntil || 0)) {
+        var nearest = null;
+        var minD = Infinity;
+        for (var i = 0; i < enemies.length; i++) {
+          var e = enemies[i];
+          var d = dist(player.x, player.y, e.x, e.y);
+          if (d < minD) { minD = d; nearest = e; }
+        }
+        if (nearest) {
+          var dx = nearest.x - player.x;
+          var dy = nearest.y - player.y;
+          var bd = Math.sqrt(dx * dx + dy * dy) || 1;
+          smartMissiles.push({
+            x: player.x + (dx / bd) * (PLAYER.radius + SMART_MISSILE.radius),
+            y: player.y + (dy / bd) * (PLAYER.radius + SMART_MISSILE.radius),
+            vx: (dx / bd) * SMART_MISSILE.speed,
+            vy: (dy / bd) * SMART_MISSILE.speed,
+            radius: SMART_MISSILE.radius,
+          });
+          player.smartMissileCooldownUntil = Date.now() + SMART_MISSILE.cooldownMs;
+          Sound.laser();
+        }
+      }
+      e.preventDefault();
+    }
+  });
+  document.addEventListener('keyup', function (e) {
+    if (e.code === 'ArrowUp') keys.up = false;
+    if (e.code === 'ArrowDown') keys.down = false;
+    if (e.code === 'ArrowLeft') keys.left = false;
+    if (e.code === 'ArrowRight') keys.right = false;
+    if (e.code === 'Space') keys.space = false;
+    if (e.code === 'KeyF') keys.shield = false;
+  });
+
+  function spawnPlayer() {
+    player.x = W / 2;
+    player.y = H / 2;
+    player.vx = 0;
+    player.vy = 0;
+    player.health = PLAYER.health;
+    player.invincibleUntil = Date.now() + PLAYER.invincibleDuration;
+    player.lastAimDx = 0;
+    player.lastAimDy = -1;
+    player.fireCooldownUntil = 0;
+    player.smartMissileCooldownUntil = 0;
+  }
+
+  function spawnWave() {
+    var count = WAVE_COUNTS[Math.min(wave - 1, WAVE_COUNTS.length - 1)];
+    for (var i = 0; i < count; i++) {
+      var x, y;
+      var margin = 60;
+      var tries = 0;
+      var maxTries = 25;
+      do {
+        var side = Math.floor(Math.random() * 4);
+        if (side === 0) { x = margin + Math.random() * (W - 2 * margin); y = -GRUNT.radius - 5; }
+        else if (side === 1) { x = W + GRUNT.radius + 5; y = margin + Math.random() * (H - 2 * margin); }
+        else if (side === 2) { x = margin + Math.random() * (W - 2 * margin); y = H + GRUNT.radius + 5; }
+        else { x = -GRUNT.radius - 5; y = margin + Math.random() * (H - 2 * margin); }
+        var inWall = false;
+        for (var w = 0; w < walls.length; w++) {
+          if (circleRectOverlap(x, y, GRUNT.radius + 4, walls[w])) { inWall = true; break; }
+        }
+        if (!inWall) break;
+        tries++;
+      } while (tries < maxTries);
+      enemies.push({
+        x: x, y: y,
+        vx: 0, vy: 0,
+        radius: GRUNT.radius,
+        health: GRUNT.health,
+        maxHealth: GRUNT.health,
+        type: 'grunt',
+        slotIndex: i,
+        totalSlots: count,
+        fireCooldownUntil: Date.now() + (i % 8) * 220 + Math.random() * 400,
+      });
+    }
+  }
+
+  function countAlliesNear(e, excludeSelf) {
+    var n = 0;
+    for (var i = 0; i < enemies.length; i++) {
+      if (enemies[i] === e) continue;
+      if (dist(e.x, e.y, enemies[i].x, enemies[i].y) < ML.allyRadius) n++;
+    }
+    return n;
+  }
+
+  function dist(x1, y1, x2, y2) {
+    return Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  }
+
+  function pointInRect(px, py, r) {
+    return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  }
+
+  function circleRectOverlap(cx, cy, cr, r) {
+    var closestX = Math.max(r.x, Math.min(cx, r.x + r.w));
+    var closestY = Math.max(r.y, Math.min(cy, r.y + r.h));
+    return dist(cx, cy, closestX, closestY) < cr;
+  }
+
+  function generateWalls() {
+    walls = [];
+    var attempts = 0;
+    var maxAttempts = WALL_COUNT * 15;
+    while (walls.length < WALL_COUNT && attempts < maxAttempts) {
+      attempts++;
+      var ww = 28 + Math.floor(Math.random() * 32);
+      var wh = 32 + Math.floor(Math.random() * 40);
+      var wx = Math.floor(Math.random() * (W - ww - 40)) + 20;
+      var wy = Math.floor(Math.random() * (H - wh - 40)) + 20;
+      if (dist(wx + ww / 2, wy + wh / 2, PLAYER_SPAWN_X, PLAYER_SPAWN_Y) < SPAWN_MARGIN) continue;
+      if (circleRectOverlap(PLAYER_SPAWN_X, PLAYER_SPAWN_Y, SPAWN_MARGIN, { x: wx, y: wy, w: ww, h: wh })) continue;
+      walls.push({ x: wx, y: wy, w: ww, h: wh });
+    }
+  }
+
+  function wrap(x, y, r) {
+    var nx = x, ny = y;
+    if (nx - r > W) nx -= W + 2 * r;
+    if (nx + r < 0) nx += W + 2 * r;
+    if (ny - r > H) ny -= H + 2 * r;
+    if (ny + r < 0) ny += H + 2 * r;
+    return { x: nx, y: ny };
+  }
+
+  function updatePlayer(now) {
+    var dirs = getMoveDirs();
+    player.vx = dirs.dx * PLAYER.speed;
+    player.vy = dirs.dy * PLAYER.speed;
+    var prevX = player.x, prevY = player.y;
+    player.x += player.vx;
+    player.y += player.vy;
+    var w = wrap(player.x, player.y, PLAYER.radius);
+    player.x = w.x;
+    player.y = w.y;
+    for (var i = 0; i < walls.length; i++) {
+      if (circleRectOverlap(player.x, player.y, PLAYER.radius, walls[i])) {
+        player.x = prevX;
+        player.y = prevY;
+        break;
+      }
+    }
+
+    if (keys.space && now >= player.fireCooldownUntil) {
+      var aim = getAimDirs();
+      var adx = player.lastAimDx, ady = player.lastAimDy;
+      if (aim) {
+        adx = aim.dx;
+        ady = aim.dy;
+        player.lastAimDx = adx;
+        player.lastAimDy = ady;
+      }
+      if (adx !== 0 || ady !== 0) {
+        var spd = PLAYER_BULLET.speed;
+        bullets.push({
+          x: player.x + adx * (PLAYER.radius + PLAYER_BULLET.radius),
+          y: player.y + ady * (PLAYER.radius + PLAYER_BULLET.radius),
+          vx: adx * spd,
+          vy: ady * spd,
+          radius: PLAYER_BULLET.radius,
+          isPlayer: true,
+        });
+        Sound.laser();
+        player.fireCooldownUntil = now + PLAYER.fireCooldownMs;
+      }
+    }
+  }
+
+  function updateBullets() {
+    for (var i = bullets.length - 1; i >= 0; i--) {
+      var b = bullets[i];
+      b.x += b.vx;
+      b.y += b.vy;
+      if (b.x < -50 || b.x > W + 50 || b.y < -50 || b.y > H + 50) {
+        bullets.splice(i, 1);
+      } else {
+        for (var j = 0; j < walls.length; j++) {
+          if (pointInRect(b.x, b.y, walls[j])) {
+            bullets.splice(i, 1);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  function getNearestEnemy(mx, my) {
+    var nearest = null;
+    var minD = Infinity;
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      var d = dist(mx, my, e.x, e.y);
+      if (d < minD) { minD = d; nearest = e; }
+    }
+    return nearest;
+  }
+
+  function getWallRepulsion(mx, my, margin) {
+    var rx = 0, ry = 0;
+    for (var j = 0; j < walls.length; j++) {
+      var w = walls[j];
+      var cx = Math.max(w.x, Math.min(mx, w.x + w.w));
+      var cy = Math.max(w.y, Math.min(my, w.y + w.h));
+      var d = dist(mx, my, cx, cy);
+      if (d < margin) {
+        var outX = mx - cx;
+        var outY = my - cy;
+        if (d < 0.01) {
+          var wcx = w.x + w.w / 2;
+          var wcy = w.y + w.h / 2;
+          outX = mx - wcx;
+          outY = my - wcy;
+          d = Math.sqrt(outX * outX + outY * outY) || 1;
+        }
+        var strength = d < 0.01 ? 1.5 : (margin - d) / margin;
+        rx += (outX / d) * strength;
+        ry += (outY / d) * strength;
+      }
+    }
+    return { x: rx, y: ry };
+  }
+
+  function pushMissileOutOfWall(m) {
+    for (var j = 0; j < walls.length; j++) {
+      var w = walls[j];
+      if (!pointInRect(m.x, m.y, w)) continue;
+      var dL = m.x - w.x;
+      var dR = (w.x + w.w) - m.x;
+      var dT = m.y - w.y;
+      var dB = (w.y + w.h) - m.y;
+      var r = m.radius + 1;
+      if (dL <= dR && dL <= dT && dL <= dB) {
+        m.x = w.x - r;
+      } else if (dR <= dL && dR <= dT && dR <= dB) {
+        m.x = w.x + w.w + r;
+      } else if (dT <= dL && dT <= dR && dT <= dB) {
+        m.y = w.y - r;
+      } else {
+        m.y = w.y + w.h + r;
+      }
+    }
+  }
+
+  function updateSmartMissiles() {
+    var avoidMargin = 28;
+    for (var i = smartMissiles.length - 1; i >= 0; i--) {
+      var m = smartMissiles[i];
+      var target = getNearestEnemy(m.x, m.y);
+      var dx = 0, dy = 0;
+      if (target) {
+        dx = target.x - m.x;
+        dy = target.y - m.y;
+        var d = Math.sqrt(dx * dx + dy * dy) || 1;
+        dx /= d;
+        dy /= d;
+      } else {
+        dx = m.vx;
+        dy = m.vy;
+        var d = Math.sqrt(dx * dx + dy * dy) || 1;
+        if (d > 0) { dx /= d; dy /= d; }
+      }
+      var rep = getWallRepulsion(m.x, m.y, avoidMargin);
+      var rx = rep.x, ry = rep.y;
+      var rLen = Math.sqrt(rx * rx + ry * ry) || 1;
+      if (rLen > 0.01) {
+        rx /= rLen;
+        ry /= rLen;
+        dx = dx + rx * 1.5;
+        dy = dy + ry * 1.5;
+        var len = Math.sqrt(dx * dx + dy * dy) || 1;
+        dx /= len;
+        dy /= len;
+      }
+      m.vx = dx * SMART_MISSILE.speed;
+      m.vy = dy * SMART_MISSILE.speed;
+      var oldX = m.x, oldY = m.y;
+      m.x += m.vx;
+      m.y += m.vy;
+      if (m.x < -50 || m.x > W + 50 || m.y < -50 || m.y > H + 50) {
+        smartMissiles.splice(i, 1);
+        continue;
+      }
+      var inWall = false;
+      for (var j = 0; j < walls.length; j++) {
+        if (pointInRect(m.x, m.y, walls[j])) {
+          inWall = true;
+          break;
+        }
+      }
+      if (inWall) {
+        m.x = oldX;
+        m.y = oldY;
+        pushMissileOutOfWall(m);
+        var rep = getWallRepulsion(m.x, m.y, avoidMargin + 20);
+        var rx2 = rep.x, ry2 = rep.y;
+        var rLen2 = Math.sqrt(rx2 * rx2 + ry2 * ry2) || 1;
+        if (rLen2 > 0.01) {
+          m.vx = (rx2 / rLen2) * SMART_MISSILE.speed;
+          m.vy = (ry2 / rLen2) * SMART_MISSILE.speed;
+        } else {
+          m.vx = dx * SMART_MISSILE.speed;
+          m.vy = dy * SMART_MISSILE.speed;
+        }
+      }
+      var hitEnemy = false;
+      for (var j = enemies.length - 1; j >= 0; j--) {
+        var e = enemies[j];
+        if (dist(m.x, m.y, e.x, e.y) < m.radius + e.radius) {
+          e.health--;
+          if (e.health > 0) e.hitFlashUntil = Date.now() + 120;
+          if (e.health <= 0) {
+            Sound.enemyHit();
+            score += SMART_MISSILE.score;
+            enemies.splice(j, 1);
+          }
+          smartMissiles.splice(i, 1);
+          hitEnemy = true;
+          break;
+        }
+      }
+    }
+  }
+
+  function getAlphaRobot() {
+    var alpha = null;
+    var minDist = Infinity;
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      var d = dist(e.x, e.y, player.x, player.y);
+      if (d < minDist) { minDist = d; alpha = e; }
+    }
+    return alpha;
+  }
+
+  function getMARLObsOne(e, alpha, now) {
+    var sc = MARL_CONST.obsScale;
+    var dxPlayer = (player.x - e.x) / sc;
+    var dyPlayer = (player.y - e.y) / sc;
+    var distPlayer = dist(e.x, e.y, player.x, player.y) / sc;
+    var dxPred = (predictedPlayerX - e.x) / sc;
+    var dyPred = (predictedPlayerY - e.y) / sc;
+    var isAlpha = (alpha && e === alpha) ? 1 : 0;
+    var allies = Math.min(countAlliesNear(e), MARL_CONST.maxAllies) / MARL_CONST.maxAllies;
+    var fireReady = (now >= e.fireCooldownUntil) ? 1 : 0;
+    var wallDists = [];
+    for (var r = 0; r < MARL_CONST.nWallRays; r++) {
+      var ang = r * (2 * Math.PI / MARL_CONST.nWallRays);
+      var minD = MARL_CONST.wallRayLen;
+      for (var w = 0; w < walls.length; w++) {
+        var cx = walls[w].x + walls[w].w / 2;
+        var cy = walls[w].y + walls[w].h / 2;
+        var d = dist(e.x, e.y, cx, cy) - (walls[w].w + walls[w].h) / 4;
+        if (d < minD) minD = Math.max(0, d);
+      }
+      wallDists.push(minD / MARL_CONST.wallRayLen);
+    }
+    var pvx = player.vx / (PLAYER.speed + 1e-8);
+    var pvy = player.vy / (PLAYER.speed + 1e-8);
+    return [dxPlayer, dyPlayer, distPlayer, dxPred, dyPred, isAlpha, allies, fireReady,
+      wallDists[0], wallDists[1], wallDists[2], wallDists[3], pvx, pvy];
+  }
+
+  function MARLForward(obs, policy) {
+    var matmul = function (x, W, b) {
+      var out = [];
+      for (var j = 0; j < W.length; j++) {
+        var s = b[j];
+        for (var i = 0; i < x.length; i++) s += x[i] * W[j][i];
+        out.push(s);
+      }
+      return out;
+    };
+    var tanh = function (z) { return Math.tanh(z); };
+    var h = matmul(obs, policy.layers[0].W, policy.layers[0].b).map(tanh);
+    h = matmul(h, policy.layers[1].W, policy.layers[1].b).map(tanh);
+    var moveLogits = matmul(h, policy.move_head.W, policy.move_head.b);
+    var fireLogits = matmul(h, policy.fire_head.W, policy.fire_head.b);
+    var moveAction = 0;
+    var moveMax = moveLogits[0];
+    for (var i = 1; i < moveLogits.length; i++) {
+      if (moveLogits[i] > moveMax) { moveMax = moveLogits[i]; moveAction = i; }
+    }
+    var fireAction = fireLogits[1] > fireLogits[0] ? 1 : 0;
+    return { move: moveAction, fire: fireAction };
+  }
+
+  function DNNPredict(xNorm, yNorm, vxNorm, vyNorm) {
+    var d = window.DNN_PREDICT;
+    if (!d || !d.layers || d.layers.length < 2) return null;
+    var matmul = function (x, W, b) {
+      var out = [];
+      for (var j = 0; j < W.length; j++) {
+        var s = b[j];
+        for (var i = 0; i < x.length; i++) s += x[i] * W[j][i];
+        out.push(s);
+      }
+      return out;
+    };
+    var tanh = function (z) { return Math.tanh(z); };
+    var sigmoid = function (z) { return 1 / (1 + Math.exp(-z)); };
+    var x = [xNorm, yNorm, vxNorm, vyNorm];
+    var h = matmul(x, d.layers[0].W, d.layers[0].b).map(tanh);
+    var out = matmul(h, d.layers[1].W, d.layers[1].b).map(sigmoid);
+    return [out[0], out[1]];
+  }
+
+  function runUnsupervisedPipeline() {
+    var cx = predictedPlayerX;
+    var cy = predictedPlayerY;
+    var nBins = ML.nAngularBins;
+    var twoPi = 2 * Math.PI;
+    var binWidth = twoPi / nBins;
+    var angles = [];
+    var binCounts = [];
+    for (var b = 0; b < nBins; b++) binCounts[b] = 0;
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      var a = Math.atan2(e.y - cy, e.x - cx);
+      if (a < 0) a += twoPi;
+      angles.push({ index: i, angle: a });
+      var binIdx = Math.floor(a / binWidth) % nBins;
+      binCounts[binIdx]++;
+    }
+    var gapBins = [];
+    for (var b = 0; b < nBins; b++) {
+      if (binCounts[b] <= ML.gapThreshold) gapBins.push(b);
+    }
+    var gapCenters = gapBins.map(function (b) { return (b + 0.5) * binWidth; });
+    angles.sort(function (a, b) { return a.angle - b.angle; });
+    gapCenters.sort(function (a, b) { return a - b; });
+    for (var k = 0; k < enemies.length; k++) { enemies[k].isFillingGap = false; }
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[angles[i].index];
+      if (e.isAlpha) continue;
+      if (gapCenters.length > 0) {
+        var idx = i % gapCenters.length;
+        e.targetAngle = gapCenters[idx];
+        e.isFillingGap = true;
+      } else {
+        var fallback = (e.slotIndex / Math.max(e.totalSlots || 1, 1)) * twoPi;
+        e.targetAngle = (fallback + (Date.now() * ML.formationPhaseSpeed)) % twoPi;
+      }
+    }
+  }
+
+  function updateEnemies(now) {
+    var alpha = getAlphaRobot();
+    for (var k = 0; k < enemies.length; k++) { enemies[k].isAlpha = (enemies[k] === alpha); }
+    runUnsupervisedPipeline();
+    if (window.MARL_POLICY) {
+      for (var k = 0; k < enemies.length; k++) {
+        var e = enemies[k];
+        var obs = getMARLObsOne(e, alpha, now);
+        var act = MARLForward(obs, window.MARL_POLICY);
+        var dir = MARL_CONST.moveDirs[act.move];
+        e.vx = dir[0] * GRUNT.speed;
+        e.vy = dir[1] * GRUNT.speed;
+        var oldX = e.x, oldY = e.y;
+        e.x += e.vx;
+        e.y += e.vy;
+        var w = wrap(e.x, e.y, e.radius);
+        e.x = w.x;
+        e.y = w.y;
+        for (var i = 0; i < walls.length; i++) {
+          if (circleRectOverlap(e.x, e.y, e.radius, walls[i])) {
+            e.x = oldX;
+            e.y = oldY;
+            break;
+          }
+        }
+        if (e.type === 'grunt' && act.fire && now >= e.fireCooldownUntil) {
+          var bdx = predictedPlayerX - e.x;
+          var bdy = predictedPlayerY - e.y;
+          var bd = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
+          bullets.push({
+            x: e.x + (bdx / bd) * (e.radius + ENEMY_BULLET.radius),
+            y: e.y + (bdy / bd) * (e.radius + ENEMY_BULLET.radius),
+            vx: (bdx / bd) * GRUNT.bulletSpeed,
+            vy: (bdy / bd) * GRUNT.bulletSpeed,
+            radius: ENEMY_BULLET.radius,
+            isPlayer: false,
+          });
+          e.fireCooldownUntil = now + GRUNT.fireCooldownMs;
+        }
+      }
+      return;
+    }
+    var formationPhase = (now * ML.formationPhaseSpeed) % (2 * Math.PI);
+    var centerX = alpha ? alpha.x : predictedPlayerX;
+    var centerY = alpha ? alpha.y : predictedPlayerY;
+    for (var k = 0; k < enemies.length; k++) {
+      var e = enemies[k];
+      var allies = countAlliesNear(e);
+      var slotAngle = formationPhase + (e.slotIndex / Math.max(e.totalSlots || 1, 1)) * 2 * Math.PI;
+      var dynamicRadius = ML.flankRadius + (allies - 2) * 18;
+      dynamicRadius = Math.max(ML.flankRadiusMin, Math.min(ML.flankRadiusMax, dynamicRadius));
+      var tx, ty;
+      if (e.isAlpha) {
+        tx = predictedPlayerX;
+        ty = predictedPlayerY;
+      } else {
+        var useAngle = e.targetAngle !== undefined ? e.targetAngle : slotAngle;
+        tx = centerX + Math.cos(useAngle) * dynamicRadius;
+        ty = centerY + Math.sin(useAngle) * dynamicRadius;
+      }
+      var dx = tx - e.x;
+      var dy = ty - e.y;
+      var d = Math.sqrt(dx * dx + dy * dy) || 1;
+      e.vx = (dx / d) * GRUNT.speed;
+      e.vy = (dy / d) * GRUNT.speed;
+      var oldX = e.x, oldY = e.y;
+      e.x += e.vx;
+      e.y += e.vy;
+      var w = wrap(e.x, e.y, e.radius);
+      e.x = w.x;
+      e.y = w.y;
+      for (var i = 0; i < walls.length; i++) {
+        if (circleRectOverlap(e.x, e.y, e.radius, walls[i])) {
+          e.x = oldX;
+          e.y = oldY;
+          break;
+        }
+      }
+
+      if (e.type === 'grunt' && now >= e.fireCooldownUntil) {
+        var leadX = predictedPlayerX;
+        var leadY = predictedPlayerY;
+        var bdx = leadX - e.x;
+        var bdy = leadY - e.y;
+        var bd = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
+        var vx = (bdx / bd) * GRUNT.bulletSpeed;
+        var vy = (bdy / bd) * GRUNT.bulletSpeed;
+        bullets.push({
+          x: e.x + (bdx / bd) * (e.radius + ENEMY_BULLET.radius),
+          y: e.y + (bdy / bd) * (e.radius + ENEMY_BULLET.radius),
+          vx: vx, vy: vy,
+          radius: ENEMY_BULLET.radius,
+          isPlayer: false,
+        });
+        e.fireCooldownUntil = now + GRUNT.fireCooldownMs;
+      }
+    }
+  }
+
+  function checkCollisions(now) {
+    var invincible = now < player.invincibleUntil;
+
+    for (var i = bullets.length - 1; i >= 0; i--) {
+      var b = bullets[i];
+      if (b.isPlayer) {
+        for (var j = enemies.length - 1; j >= 0; j--) {
+          var e = enemies[j];
+          if (dist(b.x, b.y, e.x, e.y) < b.radius + e.radius) {
+            e.health--;
+            if (e.health > 0) e.hitFlashUntil = Date.now() + 120;
+            bullets.splice(i, 1);
+            if (e.health <= 0) {
+              Sound.enemyHit();
+              score += GRUNT.score;
+              enemies.splice(j, 1);
+            }
+            break;
+          }
+        }
+      } else {
+        if (!invincible) {
+          var shieldActive = keys.shield;
+          var hitShield = shieldActive && dist(b.x, b.y, player.x, player.y) < PLAYER.radius + SHIELD_RADIUS;
+          var hitPlayer = dist(b.x, b.y, player.x, player.y) < b.radius + PLAYER.radius;
+          if (hitShield || hitPlayer) {
+            bullets.splice(i, 1);
+            if (!shieldActive && hitPlayer) {
+              player.health--;
+              Sound.playerHit();
+            }
+          }
+        }
+      }
+    }
+
+    if (!invincible && !keys.shield) {
+      for (var j = enemies.length - 1; j >= 0; j--) {
+        var e = enemies[j];
+        if (dist(player.x, player.y, e.x, e.y) < PLAYER.radius + e.radius) {
+          player.health--;
+          Sound.playerHit();
+          e.health--;
+          if (e.health > 0) e.hitFlashUntil = Date.now() + 120;
+          if (e.health <= 0) {
+            Sound.enemyHit();
+            score += GRUNT.score;
+            enemies.splice(j, 1);
+          }
+        }
+      }
+    }
+  }
+
+  function update(now) {
+    if (state === 'wave_clear') {
+      waveClearTimer -= 16;
+      if (waveClearTimer <= 0) {
+        state = 'playing';
+        waveClearTimer = 0;
+        UI.waveClearScreen.classList.add('hidden');
+        spawnWave();
+      }
+      return;
+    }
+    if (state !== 'playing') return;
+
+    updatePlayer(now);
+    if (window.DNN_PREDICT) {
+      var xNorm = player.x / W;
+      var yNorm = player.y / H;
+      var vxNorm = player.vx / (PLAYER.speed + 1e-8);
+      var vyNorm = player.vy / (PLAYER.speed + 1e-8);
+      var out = DNNPredict(xNorm, yNorm, vxNorm, vyNorm);
+      if (out) {
+        predictedPlayerX = out[0] * W;
+        predictedPlayerY = out[1] * H;
+      } else {
+        avgPlayerVx = ML.smoothFactor * avgPlayerVx + (1 - ML.smoothFactor) * player.vx;
+        avgPlayerVy = ML.smoothFactor * avgPlayerVy + (1 - ML.smoothFactor) * player.vy;
+        predictedPlayerX = player.x + avgPlayerVx * ML.predictFrames;
+        predictedPlayerY = player.y + avgPlayerVy * ML.predictFrames;
+      }
+    } else {
+      avgPlayerVx = ML.smoothFactor * avgPlayerVx + (1 - ML.smoothFactor) * player.vx;
+      avgPlayerVy = ML.smoothFactor * avgPlayerVy + (1 - ML.smoothFactor) * player.vy;
+      predictedPlayerX = player.x + avgPlayerVx * ML.predictFrames;
+      predictedPlayerY = player.y + avgPlayerVy * ML.predictFrames;
+    }
+    updateBullets();
+    updateSmartMissiles();
+    updateEnemies(now);
+    checkCollisions(now);
+
+    if (player.health <= 0) {
+      player.lives--;
+      bullets = [];
+      smartMissiles = [];
+      if (player.lives <= 0) {
+        Sound.gameOver();
+        state = 'game_over';
+        UI.gameOverScreen.classList.remove('hidden');
+        UI.finalScoreEl.textContent = 'Score: ' + score;
+      } else {
+        spawnPlayer();
+      }
+    }
+
+    if (enemies.length === 0 && state === 'playing') {
+      state = 'wave_clear';
+      waveClearTimer = WAVE_CLEAR_PAUSE_MS;
+      UI.waveClearScreen.classList.remove('hidden');
+      Sound.waveClear();
+      wave++;
+    }
+  }
+
+  function drawPlayer(now) {
+    if (keys.shield) {
+      ctx.save();
+      var pulse = 0.4 + 0.35 * Math.sin(now / 100);
+      ctx.strokeStyle = 'rgba(0, 255, 255, ' + pulse + ')';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#0ff';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, PLAYER.radius + SHIELD_RADIUS, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.save();
+    if (now < player.invincibleUntil) {
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(now / 80);
+    }
+    ctx.fillStyle = '#0f0';
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, PLAYER.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0a0';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+    drawPlayerLabels(now);
+  }
+
+  function drawPlayerLabels(now) {
+    var pad = PLAYER.radius + 22;
+    var lineH = 14;
+    ctx.save();
+    ctx.font = '11px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = '#0f0';
+    var y0 = player.y - lineH * 1.5;
+    ctx.fillText('Lives: ' + player.lives, player.x + pad, y0);
+    ctx.fillText(keys.shield ? 'Shield: ACTIVE' : 'Shield: —', player.x + pad, y0 + lineH);
+    var smUntil = player.smartMissileCooldownUntil || 0;
+    var smartText = now >= smUntil ? 'Smart: READY' : 'Smart: ' + (Math.ceil((smUntil - now) / 100) / 10) + 's';
+    ctx.fillText(smartText, player.x + pad, y0 + lineH * 2);
+    ctx.restore();
+  }
+
+  function drawSmartMissiles() {
+    for (var i = 0; i < smartMissiles.length; i++) {
+      var m = smartMissiles[i];
+      ctx.fillStyle = '#fa0';
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#f80';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  function drawBullets() {
+    for (var i = 0; i < bullets.length; i++) {
+      var b = bullets[i];
+      if (b.isPlayer) {
+        var len = 24;
+        var dx = b.vx;
+        var dy = b.vy;
+        var d = Math.sqrt(dx * dx + dy * dy) || 1;
+        dx /= d;
+        dy /= d;
+        var x0 = b.x - dx * len;
+        var y0 = b.y - dy * len;
+        var x1 = b.x + dx * len;
+        var y1 = b.y + dy * len;
+        ctx.save();
+        ctx.strokeStyle = '#0ff';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#0ff';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#f80';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawEnemies() {
+    var now = Date.now();
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      var fireReady = now >= e.fireCooldownUntil;
+      var onCooldown = !fireReady;
+      var hitFlash = e.hitFlashUntil && now < e.hitFlashUntil;
+      var damaged = (e.maxHealth != null) && e.health < e.maxHealth;
+      ctx.save();
+      if (onCooldown) ctx.globalAlpha = 0.65;
+      ctx.fillStyle = e.isAlpha ? '#ff0' : '#c00';
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (fireReady) {
+        ctx.strokeStyle = e.isAlpha ? '#ff8' : '#f66';
+        ctx.lineWidth = 3;
+      } else {
+        ctx.strokeStyle = e.isAlpha ? '#aa0' : '#800';
+        ctx.lineWidth = 2;
+      }
+      ctx.stroke();
+      if (hitFlash) {
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (damaged) {
+        ctx.globalAlpha = 0.9;
+        var barW = 20;
+        var barH = 3;
+        var pad = e.radius + 4;
+        ctx.fillStyle = '#300';
+        ctx.fillRect(e.x - barW / 2, e.y + pad, barW, barH);
+        ctx.fillStyle = '#f00';
+        ctx.fillRect(e.x - barW / 2, e.y + pad, barW * (e.health / (e.maxHealth || 1)), barH);
+      }
+      ctx.restore();
+    }
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (e.isAlpha) {
+        ctx.save();
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius + 12, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        ctx.save();
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.fillStyle = '#ff0';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ff0';
+        ctx.shadowBlur = 4;
+        ctx.fillText('ALPHA', e.x, e.y - e.radius - 14);
+        ctx.restore();
+      }
+      if (e.isFillingGap) {
+        ctx.save();
+        ctx.strokeStyle = '#0cc';
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.8;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius + 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      ctx.save();
+      ctx.strokeStyle = e.isAlpha ? '#ff0' : '#f66';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(e.x, e.y);
+      ctx.lineTo(player.x, player.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawWalls() {
+    for (var i = 0; i < walls.length; i++) {
+      var w = walls[i];
+      ctx.fillStyle = '#333';
+      ctx.fillRect(w.x, w.y, w.w, w.h);
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(w.x, w.y, w.w, w.h);
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, W, H);
+
+    if (state === 'playing' || state === 'wave_clear') {
+      drawWalls();
+      drawBullets();
+      drawSmartMissiles();
+      drawEnemies();
+      drawPlayer(Date.now());
+    }
+
+    if (state === 'wave_clear' && waveClearTimer > 0) {
+      UI.waveEl.textContent = 'Wave ' + (wave - 1) + ' clear! Next: ' + wave;
+    }
+
+    if (window.DOCKER_LABEL) {
+      ctx.save();
+      ctx.font = '10px "Courier New", monospace';
+      ctx.fillStyle = '#0f0';
+      ctx.globalAlpha = 0.8;
+      ctx.textAlign = 'center';
+      ctx.fillText(window.DOCKER_LABEL, W / 2, H - 8);
+      ctx.restore();
+    }
+  }
+
+  function tick() {
+    update(Date.now());
+    draw();
+    if (state === 'playing' || state === 'wave_clear') {
+      UI.scoreEl.textContent = 'Score: ' + score;
+      UI.livesEl.textContent = 'Lives: ' + player.lives;
+      UI.shieldEl.textContent = keys.shield ? 'Shield: ACTIVE' : 'Shield: —';
+      var smUntil = player.smartMissileCooldownUntil || 0;
+      var now = Date.now();
+      if (now >= smUntil) {
+        UI.smartMissileEl.textContent = 'Smart: READY';
+      } else {
+        var secs = Math.ceil((smUntil - now) / 100) / 10;
+        UI.smartMissileEl.textContent = 'Smart: ' + secs + 's';
+      }
+      UI.waveEl.textContent = 'Wave: ' + wave;
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function startGame() {
+    Sound.resume();
+    state = 'playing';
+    score = 0;
+    wave = 1;
+    bullets = [];
+    smartMissiles = [];
+    enemies = [];
+    generateWalls();
+    player.health = PLAYER.health;
+    player.lives = PLAYER.lives;
+    player.invincibleUntil = 0;
+    UI.startScreen.classList.add('hidden');
+    UI.gameOverScreen.classList.add('hidden');
+    UI.waveClearScreen.classList.add('hidden');
+    spawnPlayer();
+    avgPlayerVx = 0;
+    avgPlayerVy = 0;
+    predictedPlayerX = player.x;
+    predictedPlayerY = player.y;
+    spawnWave();
+  }
+
+  function nextWave() {
+    state = 'playing';
+    waveClearTimer = 0;
+    UI.waveClearScreen.classList.add('hidden');
+    spawnWave();
+  }
+
+  UI.startBtn.addEventListener('click', startGame);
+  UI.restartBtn.addEventListener('click', startGame);
+  UI.nextWaveBtn.addEventListener('click', nextWave);
+
+  requestAnimationFrame(tick);
+})();
+  </script>
+</body>
+</html>

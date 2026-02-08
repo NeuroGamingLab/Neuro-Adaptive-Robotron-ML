@@ -1,0 +1,35 @@
+# Do not include template folder
+DONOT-MODIFY-template/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+
+# Git and IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Env and secrets (never in image)
+.env
+.env.*
+*.pem
+secrets.yaml
+secrets.yml
+
+# OS and misc
+.DS_Store
+Thumbs.db
+*.log
